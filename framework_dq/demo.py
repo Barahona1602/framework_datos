@@ -2,110 +2,85 @@
 =============================================================================
 DEMO — FRAMEWORK DE CALIDAD DE DATOS
 =============================================================================
-Genera datos sintéticos con anomalías inyectadas y ejecuta el pipeline
-completo para producir el dashboard de resultados.
+Lee tu propio CSV y ejecuta el pipeline completo:
+  1. Ingesta
+  2. Preprocesamiento automático
+  3. Detección de anomalías (Motor Híbrido)
+  4. Explicabilidad
+  5. Reporte y dashboard
 =============================================================================
 """
-
+ 
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-import numpy as np
+ 
 import pandas as pd
 from framework import DataQualityFramework
-
-
+ 
+ 
 # ------------------------------------------------------------------
-# Generador de datos sintéticos con anomalías inyectadas
+# CONFIGURACIÓN — ajusta estos valores a tu dataset
 # ------------------------------------------------------------------
-def generate_synthetic_data(n_normal: int = 800, n_anomaly: int = 50, seed: int = 42):
-    """
-    Simula un dataset transaccional empresarial con errores conocidos.
-    Variables: monto, edad, días_activo, categoria, region
-    """
-    rng = np.random.default_rng(seed)
-
-    # Datos normales
-    normal = pd.DataFrame({
-        "monto_transaccion": rng.normal(500, 120, n_normal).clip(50, 1500),
-        "edad_cliente":      rng.integers(18, 70, n_normal).astype(float),
-        "dias_activo":       rng.integers(1, 365, n_normal).astype(float),
-        "num_transacciones": rng.integers(1, 50, n_normal).astype(float),
-        "score_credito":     rng.normal(650, 80, n_normal).clip(300, 850),
-        "categoria":         rng.choice(["Retail", "Servicios", "Tecnología", "Salud"], n_normal),
-        "region":            rng.choice(["Norte", "Sur", "Centro", "Oriente"], n_normal),
-        "es_anomalia_real":  [0] * n_normal,
-    })
-
-    # Anomalías inyectadas (outliers reales)
-    anomalies = pd.DataFrame({
-        "monto_transaccion": rng.choice(
-            np.concatenate([rng.normal(15000, 500, n_anomaly // 2),
-                            rng.normal(0.5, 0.2, n_anomaly // 2)]).clip(0, 20000),
-            n_anomaly, replace=False
-        ),
-        "edad_cliente":      rng.choice([5, 130, 999], n_anomaly, replace=True).astype(float),
-        "dias_activo":       rng.choice([-10, 5000], n_anomaly, replace=True).astype(float),
-        "num_transacciones": rng.integers(500, 2000, n_anomaly).astype(float),
-        "score_credito":     rng.choice([10, 1200], n_anomaly, replace=True).astype(float),
-        "categoria":         rng.choice(["Retail", "Servicios", "Tecnología", "Salud"], n_anomaly),
-        "region":            rng.choice(["Norte", "Sur", "Centro", "Oriente"], n_anomaly),
-        "es_anomalia_real":  [1] * n_anomaly,
-    })
-
-    df = pd.concat([normal, anomalies], ignore_index=True)
-    df = df.sample(frac=1, random_state=seed).reset_index(drop=True)
-    return df
-
-
+CSV_PATH   = "test.csv"       # Ruta a tu archivo CSV
+OUTPUT_DIR = "reports"     # Carpeta donde se guardan los reportes
+ 
+CONFIG = {
+    "contamination":        0.06,   # Proporción estimada de anomalías (ej: 0.05 = 5%)
+    "ae_epochs":            40,     # Épocas de entrenamiento del Autoencoder
+    "threshold_percentile": 94,     # Percentil para definir el umbral de anomalía
+    "weights": {
+        "autoencoder":      0.40,
+        "isolation_forest": 0.35,
+        "one_class_svm":    0.25,
+    }
+}
+ 
+ 
 # ------------------------------------------------------------------
-# Ejecución del pipeline
+# PIPELINE
 # ------------------------------------------------------------------
 if __name__ == "__main__":
-    print("\nGenerando dataset sintético transaccional...")
-    df = generate_synthetic_data(n_normal=800, n_anomaly=50)
-    ground_truth = df.pop("es_anomalia_real")
-
-    fw = DataQualityFramework(config={
-        "contamination":        0.06,
-        "ae_epochs":            40,
-        "threshold_percentile": 94,
-        "weights": {
-            "autoencoder":      0.40,
-            "isolation_forest": 0.35,
-            "one_class_svm":    0.25,
-        }
-    })
-
-    fw.run(
-        source      = df,
-        source_type = "dataframe",
-        output_dir  = "reports"
-    )
-
-    # Evaluación con ground truth
-    preds = fw.results["anomaly_label"]
-    tp = ((preds == 1) & (ground_truth == 1)).sum()
-    fp = ((preds == 1) & (ground_truth == 0)).sum()
-    fn = ((preds == 0) & (ground_truth == 1)).sum()
-    tn = ((preds == 0) & (ground_truth == 0)).sum()
-
-    precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-    recall    = tp / (tp + fn) if (tp + fn) > 0 else 0
-    f1        = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-
+    # 1. Cargar datos
+    print(f"\nCargando datos desde: {CSV_PATH}")
+    df = pd.read_csv(CSV_PATH)
+    print(f"Dataset cargado: {len(df):,} registros | {df.shape[1]} columnas")
+ 
+    # 2. Correr el framework
+    fw = DataQualityFramework(config=CONFIG)
+    fw.run(df, source_type="dataframe", output_dir=OUTPUT_DIR)
+ 
+    # 3. Resumen de resultados
+    results = fw.results
+    n_total   = len(results)
+    n_anomaly = int(results["anomaly_label"].sum())
+    n_normal  = n_total - n_anomaly
+ 
     print("\n" + "=" * 50)
-    print("  EVALUACIÓN CON GROUND TRUTH")
+    print("  RESUMEN DE DETECCIÓN")
     print("=" * 50)
-    print(f"  Verdaderos Positivos  (TP): {tp}")
-    print(f"  Falsos Positivos      (FP): {fp}")
-    print(f"  Falsos Negativos      (FN): {fn}")
-    print(f"  Verdaderos Negativos  (TN): {tn}")
-    print(f"  Precisión             : {precision:.4f}")
-    print(f"  Recall                : {recall:.4f}")
-    print(f"  F1-Score              : {f1:.4f}")
+    print(f"  Total de registros    : {n_total:,}")
+    print(f"  Registros normales    : {n_normal:,}")
+    print(f"  Anomalías detectadas  : {n_anomaly:,} ({n_anomaly/n_total*100:.2f}%)")
     print("=" * 50)
-    print("\n✓ Dashboard guardado en reports/dashboard.png")
-    print("✓ Anomalías exportadas en reports/anomalias_detectadas.csv")
-    print("✓ Métricas en reports/metricas.txt\n")
+ 
+    # 4. Mostrar top 10 anomalías con su explicación
+    anomalies = results[results["anomaly_label"] == 1].sort_values(
+        "anomaly_score", ascending=False
+    ).head(10)
+ 
+    print("\n  TOP 10 ANOMALÍAS (mayor score):")
+    print(f"  {'ID':<6} {'Score':>8}  {'Variables clave'}")
+    print("  " + "-" * 55)
+ 
+    reason_map = {e["index"]: e for e in fw.explanation["explanations"]}
+    for idx, row in anomalies.iterrows():
+        exp = reason_map.get(idx, {})
+        top_vars = ", ".join(exp.get("top_features", [])[:2])
+        print(f"  {idx:<6} {row['anomaly_score']:>8.4f}  {top_vars}")
+ 
+    print("\n" + "=" * 50)
+    print(f"  ✓ Dashboard     → {OUTPUT_DIR}/dashboard.png")
+    print(f"  ✓ Anomalías CSV → {OUTPUT_DIR}/anomalias_detectadas.csv")
+    print(f"  ✓ Métricas      → {OUTPUT_DIR}/metricas.txt")
+    print("=" * 50 + "\n")
