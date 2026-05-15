@@ -1,0 +1,15 @@
+============================================================
+  REPORTE DE MÉTRICAS — FRAMEWORK DE CALIDAD DE DATOS
+============================================================
+Total de registros analizados : 850
+Anomalías detectadas          : 51 (6.00%)
+Umbral adaptativo (p95)       : 0.385468
+
+SCORES PROMEDIO POR MODELO:
+  Autoencoder      : 0.0270
+  Isolation Forest : 0.1473
+  One-Class SVM    : 0.0468
+
+PREPROCESAMIENTO:
+  5 numéricas | 0 categóricas | 0 fechas | 2 descartadas
+============================================================
